@@ -9,6 +9,7 @@
 #include <list>
 #include <functional>
 #include <cassert>
+#include <stdarg.h>
 
 using namespace std;
 
@@ -25,17 +26,45 @@ public:
     Controller<T>* ctrl;
 
     enum class Type {
-        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MAX
-    } type = Type::FRFCFS_PriorHit;
+        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MAX
+    //} type = Type::FRFCFS_PriorHit;
+    } type = Type::MEDUSA_FRFCFS_PriorHit;
 
     long cap = 16;
+    //Bits corresponding to reserved banks are set.
+    uint8_t reservedBankMask = 0xf;
+    //The corresponding bits of serviced banks
+    //are cleared within a round.
+    uint8_t rrBankMask = reservedBankMask;
+    //found a ready request request to reserved bank.
+    bool found_ready_reserved_request;
+    //found a not-ready request request to reserved bank
+    bool found_reserved_request;
+
 
     Scheduler(Controller<T>* ctrl) : ctrl(ctrl) {}
 
+    // Checks if there are pending requests to
+    // reserved banks in the queue.
+    bool isRequestToReservedBank(list<Request>& q) {
+        for (auto itr = q.begin() ; itr != q.end() ; ++itr) {
+            if ((reservedBankMask) & (0x01 << itr->addr_vec[int (T::Level::Bank)]))
+                return true;
+        }
+        return false;
+    }
+
+
     list<Request>::iterator get_head(list<Request>& q)
     {
+      found_ready_reserved_request = false;
+      found_reserved_request = false;
+      //Resets the rrBankMask to begin a new round.
+      if (!rrBankMask)
+          rrBankMask = reservedBankMask;
+      //printf("Value of rrBankMask = 0x%lx\n", rrBankMask);
       // TODO make the decision at compile time
-      if (type != Type::FRFCFS_PriorHit) {
+      if (type != Type::FRFCFS_PriorHit && type != Type::MEDUSA_FRFCFS_PriorHit) {
         if (!q.size())
             return q.end();
 
@@ -44,7 +73,44 @@ public:
             head = compare[int(type)](head, itr);
 
         return head;
-      } else {
+      //MEDUSA: Round-robin scheduling
+      } else if (type == Type::MEDUSA_FRFCFS_PriorHit) {
+        //printf("MEDUSA\n");
+        if (!q.size())
+            return q.end();
+        auto head = q.begin();
+        //find the request to reserved bank which is not
+        //serviced yet in the current round.
+        for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
+            head = compare[int(type)](head, itr);
+        }
+        if (found_ready_reserved_request || found_reserved_request) {
+            //printf("MEDUSA:Selected Bank: %d\n", head->addr_vec[int (T::Level::Bank)]);
+            return head;
+        }
+        else {
+            //When a round is done, check if there are
+            //more requests to the reserved bank that is
+            //already served in the current round.
+            if (isRequestToReservedBank(q)) {
+                //start new round.
+                rrBankMask = reservedBankMask;
+                for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
+                    head = compare[int(type)](head, itr);
+                }
+                if (found_ready_reserved_request || found_reserved_request) {
+                    return head;
+                }
+            }
+            // No more requests to reserved banks.
+            // switch to fr-fcfs to schedule requests
+            // to shared banks.
+            goto frfcfs;
+        }
+      }
+      else {
+frfcfs:
+        //printf("FR-FCFS\n");
         if (!q.size())
             return q.end();
 
@@ -54,6 +120,7 @@ public:
         }
 
         if (this->ctrl->is_ready(head) && this->ctrl->is_row_hit(head)) {
+          //printf("FR-FCFS:Selected Bank: %d\n", head->addr_vec[int (T::Level::Bank)]);
           return head;
         }
 
@@ -150,7 +217,50 @@ private:
             }
 
             if (req1->arrive <= req2->arrive) return req1;
-            return req2;}
+            return req2;},
+        // MEDUSA_FRFCFS_PriorHit
+        [this] (ReqIter req1, ReqIter req2) {
+
+            // find the first come ready request to reserved bank.
+            bool ready1 = (this->ctrl->is_ready(req1)) && ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            bool ready2 = (this->ctrl->is_ready(req2)) && ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            //printf("Req1 Bank: %d Req2 Bank: %d\n", req1->addr_vec[int (T::Level::Bank)], req2->addr_vec[int (T::Level::Bank)]);
+
+            if (ready1 || ready2) {
+                this->found_ready_reserved_request = true;
+            }
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;}
+
+
+            // if we cannot find the ready request.
+            // find the first come non-ready request to reserved bank.
+            ready1 = ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            if (ready1 || ready2) {
+                this->found_reserved_request = true;
+            }
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;
+            }
+            //printf("flag1 %d, flag2 %d\n",this->found_ready_reserved_request, this->found_reserved_request);
+            if (req1->arrive <= req2->arrive) return req1;
+            return req2;
+        }
     };
 };
 

@@ -405,6 +405,11 @@ public:
 
         // set a future completion time for read requests
         if (req->type == Request::Type::READ) {
+            //MEDUSA: The reserved bank got serviced in this round.
+            //Donot service this bank again until all the other 
+            //reserved banks are serviced.
+            if ((scheduler->reservedBankMask) & (0x01 << req->addr_vec[int (T::Level::Bank)]))
+                scheduler->rrBankMask &= ~(0x01 << req->addr_vec[int (T::Level::Bank)]);
             req->depart = clk + channel->spec->read_latency;
             pending.push_back(*req);
         }
