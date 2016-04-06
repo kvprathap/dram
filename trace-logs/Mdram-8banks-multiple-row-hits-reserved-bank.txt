@@ -1,0 +1,23 @@
+  ACT          1:     0     0     0     0     0
+  ACT          9:     0     0     1     0     0
+   RD         16:     0     0     0     0     0
+  ACT         17:     0     0     2     0     0
+   RD         24:     0     0     1     0     0
+  ACT         25:     0     0     3     0     0
+   RD         32:     0     0     2     0     0
+   RD         40:     0     0     3     0     0
+   RD         44:     0     0     0     0     4
+   RD         48:     0     0     0     0     8
+   RD         52:     0     0     0     0    12
+   RD         56:     0     0     0     0    16
+   RD         60:     0     0     0     0    20
+   RD         64:     0     0     0     0    24
+  ACT         65:     0     0     4     0     0
+  ACT         73:     0     0     5     0     0
+   RD         80:     0     0     4     0     0
+  ACT         81:     0     0     6     0     0
+   RD         88:     0     0     5     0     0
+  ACT         89:     0     0     7     0     0
+   RD         96:     0     0     6     0     0
+   RD        104:     0     0     7     0     0
+Simulation done. Statistics written to LPDDR3.stats

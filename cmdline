@@ -1,0 +1,1 @@
+./ramulator configs/LPDDR3-config.cfg --mode=dram --stats fr-fcsfs.txt mixed-trace-row-hits.txt 1>out
