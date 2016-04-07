@@ -332,21 +332,41 @@ public:
 
         /*** 2. Refresh scheduler ***/
         refresh->tick_ref();
-
-        /*** 3. Should we schedule writes? ***/
-        if (!write_mode) {
-            // yes -- write queue is almost full or read queue is empty
-            if (writeq.size() >= int(0.8 * writeq.max) || readq.size() == 0)
-                write_mode = true;
+        // switching rule for MEDUSA
+        Queue* queue = &readq;
+        if (scheduler->type == Scheduler<T>::Type::MEDUSA_FRFCFS_PriorHit) {
+            /*** 3. Should we schedule writes? ***/
+            if (!write_mode) {
+                // yes -- write queue is almost full or read queue is empty
+                if (writeq.size() >= int(0.8 * writeq.max) || readq.size() == 0) {
+                    // But wait-- check if there are read requests to reserved banks
+                    if (!scheduler->isRequestToReservedBank(queue->q))
+                        write_mode = true;
+                }
+            }
+            else {
+                // no -- write queue is almost empty and read queue is not empty
+                // Also, if there is a read request to reserved bank, we need to swicth back to reads immediately
+                if ((scheduler->isRequestToReservedBank(queue->q)) || (writeq.size() <= int(0.2 * writeq.max) && readq.size() != 0))
+                    write_mode = false;
+            }
         }
         else {
-            // no -- write queue is almost empty and read queue is not empty
-            if (writeq.size() <= int(0.2 * writeq.max) && readq.size() != 0)
-                write_mode = false;
+            /*** 3. Should we schedule writes? ***/
+            if (!write_mode) {
+                // yes -- write queue is almost full or read queue is empty
+                if (writeq.size() >= int(0.8 * writeq.max) || readq.size() == 0)
+                    write_mode = true;
+            }
+            else {
+                // no -- write queue is almost empty and read queue is not empty
+                if (writeq.size() <= int(0.2 * writeq.max) && readq.size() != 0)
+                    write_mode = false;
+            }
         }
 
         /*** 4. Find the best command to schedule, if any ***/
-        Queue* queue = !write_mode ? &readq : &writeq;
+        queue = !write_mode ? &readq : &writeq;
         if (otherq.size())
             queue = &otherq;  // "other" requests are rare, so we give them precedence over reads/writes
 

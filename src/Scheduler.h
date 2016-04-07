@@ -26,7 +26,7 @@ public:
     Controller<T>* ctrl;
 
     enum class Type {
-        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MAX
+        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MEDUSA_NO_SWITCH_FRFCFS_PriorHit, MAX
     //} type = Type::FRFCFS_PriorHit;
     } type = Type::MEDUSA_FRFCFS_PriorHit;
 
@@ -57,14 +57,8 @@ public:
 
     list<Request>::iterator get_head(list<Request>& q)
     {
-      found_ready_reserved_request = false;
-      found_reserved_request = false;
-      //Resets the rrBankMask to begin a new round.
-      if (!rrBankMask)
-          rrBankMask = reservedBankMask;
-      //printf("Value of rrBankMask = 0x%lx\n", rrBankMask);
       // TODO make the decision at compile time
-      if (type != Type::FRFCFS_PriorHit && type != Type::MEDUSA_FRFCFS_PriorHit) {
+      if (type != Type::FRFCFS_PriorHit && type != Type::MEDUSA_FRFCFS_PriorHit && type != Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
         if (!q.size())
             return q.end();
 
@@ -74,7 +68,15 @@ public:
 
         return head;
       //MEDUSA: Round-robin scheduling
-      } else if (type == Type::MEDUSA_FRFCFS_PriorHit) {
+      } else if (type == Type::MEDUSA_FRFCFS_PriorHit || type == Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
+        if(this->ctrl->write_mode == true)
+            goto frfcfs;
+        found_ready_reserved_request = false;
+        found_reserved_request = false;
+        //Resets the rrBankMask to begin a new round.
+        if (!rrBankMask)
+            rrBankMask = reservedBankMask;
+        //printf("Value of rrBankMask = 0x%lx\n", rrBankMask);
         //printf("MEDUSA\n");
         if (!q.size())
             return q.end();
@@ -218,7 +220,7 @@ private:
 
             if (req1->arrive <= req2->arrive) return req1;
             return req2;},
-        // MEDUSA_FRFCFS_PriorHit
+        // MEDUSA_FRFCFS_PriorHit,MEDUSA_NO_SWITCH_FRFCFS_PriorHit
         [this] (ReqIter req1, ReqIter req2) {
 
             // find the first come ready request to reserved bank.
