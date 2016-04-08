@@ -29,6 +29,7 @@ public:
         FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MEDUSA_NO_SWITCH_FRFCFS_PriorHit, MAX
     //} type = Type::FRFCFS_PriorHit;
     } type = Type::MEDUSA_FRFCFS_PriorHit;
+    //} type = Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit;
 
     long cap = 16;
     //Bits corresponding to reserved banks are set.
@@ -84,7 +85,7 @@ public:
         //find the request to reserved bank which is not
         //serviced yet in the current round.
         for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-            head = compare[int(type)](head, itr);
+            head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
         }
         if (found_ready_reserved_request || found_reserved_request) {
             //printf("MEDUSA:Selected Bank: %d\n", head->addr_vec[int (T::Level::Bank)]);
@@ -98,7 +99,7 @@ public:
                 //start new round.
                 rrBankMask = reservedBankMask;
                 for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-                    head = compare[int(type)](head, itr);
+                    head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
                 }
                 if (found_ready_reserved_request || found_reserved_request) {
                     return head;
