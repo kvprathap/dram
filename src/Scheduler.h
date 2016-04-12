@@ -37,12 +37,8 @@ public:
     //The corresponding bits of serviced banks
     //are cleared within a round.
     uint8_t rrBankMask = reservedBankMask;
-    //found a ready request request to reserved bank.
-    bool found_ready_reserved_request;
-    //found a not-ready request request to reserved bank
-    bool found_reserved_request;
-    bool found_row_hit_request;
-    bool found_ready_row_hit_request;
+    //corrsponding bank bit is set to 1, 
+    //if it has row-hits requests in the queue.
     uint8_t rowHitBankMask;
 
 
@@ -75,17 +71,11 @@ public:
       } else if (type == Type::MEDUSA_FRFCFS_PriorHit || type == Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
         if(this->ctrl->write_mode == true || !(isRequestToReservedBank(q)))
             goto frfcfs;
-        found_ready_reserved_request = false;
-        found_reserved_request = false;
-        found_row_hit_request = false;
-        found_ready_row_hit_request = false;
-        rowHitBankMask = 0x00;
 
+        rowHitBankMask = 0x00;
         //Resets the rrBankMask to begin a new round.
         if (!rrBankMask)
             rrBankMask = reservedBankMask;
-        //printf("Value of rrBankMask = 0x%lx\n", rrBankMask);
-        //printf("MEDUSA\n");
         if (!q.size())
             return q.end();
         auto head = q.begin();
@@ -94,43 +84,30 @@ public:
         for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
             head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
         }
-        if (found_ready_row_hit_request)
-            return head;
-        // Intra Bank Scheduler, We selected a PRE command from a Bank, that had a not-ready row hit request
-        if ((found_row_hit_request) && (rowHitBankMask & (1 << head->addr_vec[int (T::Level::Bank)]))) {
+        
+        // selcted request must belong to a Reserved Bank.
+        assert((reservedBankMask) & (0x01 << head->addr_vec[int (T::Level::Bank)]));
+
+        // No more different banks to serve in this round.
+        if(!(rrBankMask & (0x01 << head->addr_vec[int (T::Level::Bank)]))) {
+            //this bank will be cleared for next round.
+            rrBankMask = reservedBankMask;
+        }
+
+        // If there are pending row-hit requests in this bank,
+        // we should select a row-hit before a closed request.
+        if (rowHitBankMask & (1 << head->addr_vec[int (T::Level::Bank)])) {
             for (auto itr = q.begin(); itr != q.end(); itr++) {
                 // find the row-hit request from this Bank.
                 if ((head->addr_vec[int (T::Level::Bank)] == itr->addr_vec[int (T::Level::Bank)]) && (this->ctrl->is_row_hit(itr)))
                     return itr;
             }
         }
-        if (found_ready_reserved_request || found_reserved_request) {
-            //printf("MEDUSA:Selected Bank: %d\n", head->addr_vec[int (T::Level::Bank)]);
-            return head;
-        }
-        else {
-            //When a round is done, check if there are
-            //more requests to the reserved bank that is
-            //already served in the current round.
-            if (isRequestToReservedBank(q)) {
-                //start new round.
-                rrBankMask = reservedBankMask;
-                for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-                    head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
-                }
-                if (found_ready_reserved_request || found_reserved_request) {
-                    return head;
-                }
-            }
-            // No more requests to reserved banks.
-            // switch to fr-fcfs to schedule requests
-            // to shared banks.
-            goto frfcfs;
-        }
+
+        return head;
       }
       else {
 frfcfs:
-        //printf("FR-FCFS\n");
         if (!q.size())
             return q.end();
 
@@ -241,13 +218,11 @@ private:
         // MEDUSA_FRFCFS_PriorHit,MEDUSA_NO_SWITCH_FRFCFS_PriorHit
         [this] (ReqIter req1, ReqIter req2) {
 
-            // find the first come ready row-hit request to reserved bank.
+            // First ready row-hit request.
             bool ready1 = (this->ctrl->is_ready(req1)) && (this->ctrl->is_row_hit(req1)) && ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
             bool ready2 = (this->ctrl->is_ready(req2)) && (this->ctrl->is_row_hit(req2)) && ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
 
-
             if (ready1 ^ ready2) {
-                this->found_ready_row_hit_request = true;
                 if (ready1) return req1;
                 return req2;
             }
@@ -256,26 +231,25 @@ private:
                     return req1;
                 return req2;}
 
-            // see if there is a non-ready row-hit request
-            ready1 = (this->ctrl->is_row_hit(req1)) && ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
-            ready2 = (this->ctrl->is_row_hit(req2)) && ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            // If there is a non-ready row-hit request,make a mask with corresponding bits set for 
+            // the banks. Later if the selected request is a ready closed request from  any of these
+            // banks, we should drop that and find a row-hit request.
+            ready1 = (this->ctrl->is_row_hit(req1)) && ((reservedBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_row_hit(req2)) && ((reservedBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
 
             if (ready1 || ready2) {
                 if (ready1)
                     rowHitBankMask = rowHitBankMask | (0x01 << req1->addr_vec[int (T::Level::Bank)]);
                 if (ready2)
                     rowHitBankMask = rowHitBankMask | (0x01 << req2->addr_vec[int (T::Level::Bank)]);
-                this->found_row_hit_request = true;
             }
 
 
-            // find the first come ready request to reserved bank.
+            // Find the first come ready request to reserved bank.
             ready1 = (this->ctrl->is_ready(req1)) && ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
             ready2 = (this->ctrl->is_ready(req2)) && ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
-            //printf("Req1 Bank: %d Req2 Bank: %d\n", req1->addr_vec[int (T::Level::Bank)], req2->addr_vec[int (T::Level::Bank)]);
 
             if (ready1 ^ ready2) {
-                this->found_ready_reserved_request = true;
                 if (ready1) return req1;
                 return req2;
             }
@@ -285,13 +259,12 @@ private:
                 return req2;}
 
 
-            // if we cannot find the ready request.
+            // If there is no ready request, 
             // find the first come non-ready request to reserved bank.
             ready1 = ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
             ready2 = ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
 
             if (ready1 ^ ready2) {
-                this->found_reserved_request = true;
                 if (ready1) return req1;
                 return req2;
             }
@@ -301,7 +274,48 @@ private:
                     return req1;
                 return req2;
             }
-            //printf("flag1 %d, flag2 %d\n",this->found_ready_reserved_request, this->found_reserved_request);
+
+            // When there is no pending request to a different bank in this round.
+            // we should select a request any of the reserved banks that must have 
+            // already serviced in this round.
+            // Repeat all the conditions  above.
+            ready1 = (this->ctrl->is_ready(req1)) && (this->ctrl->is_row_hit(req1)) && ((reservedBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && (this->ctrl->is_row_hit(req2)) && ((reservedBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;}
+            
+            ready1 = (this->ctrl->is_ready(req1)) && ((reservedBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && ((reservedBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;}
+            
+            ready1 = ((reservedBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = ((reservedBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;
+            }
             if (req1->arrive <= req2->arrive) return req1;
             return req2;
         }
