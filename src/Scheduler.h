@@ -249,6 +249,22 @@ private:
                     return req1;
                 return req2;}
 
+            // Being conserveative here.
+            // No Bank is ready. Can we issue precharge and activate
+            // to the requests from next round is they are ready.
+            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & ~rrBankMask & ~rowHitBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & ~rrBankMask & ~rowHitBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;
+            }
 
             // If there is no ready request,
             // find the first come non-ready request to reserved bank.
@@ -267,7 +283,7 @@ private:
             }
 
             // When there is no pending request to a different bank in this round.
-            // we should select a request any of the reserved banks that must have
+            // we should select a request belongs to any of the reserved banks that must have
             // already serviced in this round.
             // Repeat all the conditions  above.
             ready1 = (this->ctrl->is_ready(req1)) && (this->ctrl->is_row_hit(req1)) && ((reservedBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
