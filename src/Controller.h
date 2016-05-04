@@ -81,6 +81,7 @@ public:
     Queue readq;  // queue for read requests
     Queue writeq;  // queue for write requests
     Queue otherq;  // queue for all "other" requests (e.g., refresh)
+    Queue singleq;  // queue for read + write requests
 
     deque<Request> pending;  // read requests that are about to receive data from DRAM
     bool write_mode = false;  // whether write requests should be prioritized over reads
@@ -288,8 +289,8 @@ public:
     Queue& get_queue(Request::Type type)
     {
         switch (int(type)) {
-            case int(Request::Type::READ): return readq;
-            case int(Request::Type::WRITE): return writeq;
+            case int(Request::Type::READ): return singleq;
+            case int(Request::Type::WRITE): return singleq;
             default: return otherq;
         }
     }
@@ -304,11 +305,12 @@ public:
         queue.q.push_back(req);
         // shortcut for read requests, if a write to same addr exists
         // necessary for coherence
-        if (req.type == Request::Type::READ && find_if(writeq.q.begin(), writeq.q.end(),
-                [req](Request& wreq){ return req.addr == wreq.addr;}) != writeq.q.end()){
+        if (req.type == Request::Type::READ && find_if(singleq.q.begin(), singleq.q.end(),
+                [req](Request& wreq){ return (wreq.type == Request::Type::WRITE) && (req.addr == wreq.addr) ;}) != singleq.q.end()){
             req.depart = clk + 1;
             pending.push_back(req);
-            readq.q.pop_back();
+            //readq.q.pop_back();
+            singleq.q.pop_back();
         }
         return true;
     }
@@ -336,6 +338,7 @@ public:
 
         /*** 2. Refresh scheduler ***/
         refresh->tick_ref();
+#if 0
         // switching rule for MEDUSA
         Queue* queue = &readq;
         if (scheduler->type == Scheduler<T>::Type::MEDUSA_FRFCFS_PriorHit) {
@@ -371,6 +374,8 @@ public:
 
         /*** 4. Find the best command to schedule, if any ***/
         queue = !write_mode ? &readq : &writeq;
+#endif
+        Queue* queue = &singleq;
         if (otherq.size())
             queue = &otherq;  // "other" requests are rare, so we give them precedence over reads/writes
 
@@ -427,13 +432,15 @@ public:
         if (cmd != channel->spec->translate[int(req->type)])
             return;
 
-        // set a future completion time for read requests
-        if (req->type == Request::Type::READ) {
-            //MEDUSA: The reserved bank got serviced in this round.
-            //Donot service this bank again until all the other 
-            //reserved banks are serviced.
+        //MEDUSA: The reserved bank got serviced in this round.
+        //Donot service this bank again until all the other 
+        //reserved banks are serviced.
+        if (req->type == Request::Type::READ || req->type == Request::Type::WRITE) {
             if ((scheduler->reservedBankMask) & (0x01 << req->addr_vec[int (T::Level::Bank)]))
                 scheduler->rrBankMask &= ~(0x01 << req->addr_vec[int (T::Level::Bank)]);
+        }
+        // set a future completion time for read requests
+        if (req->type == Request::Type::READ) {
             req->depart = clk + channel->spec->read_latency;
             pending.push_back(*req);
         }

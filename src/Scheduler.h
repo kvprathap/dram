@@ -27,8 +27,8 @@ public:
 
     enum class Type {
         FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MEDUSA_NO_SWITCH_FRFCFS_PriorHit, MAX
-    //} type = Type::FRFCFS_PriorHit;
-    } type = Type::MEDUSA_FRFCFS_PriorHit;
+    } type = Type::FRFCFS_PriorHit;
+    //} type = Type::MEDUSA_FRFCFS_PriorHit;
     //} type = Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit;
 
     long cap = 16;
@@ -69,7 +69,7 @@ public:
         return head;
       // MEDUSA: Round-robin scheduling
       } else if (type == Type::MEDUSA_FRFCFS_PriorHit || type == Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
-        if(this->ctrl->write_mode == true || !(isRequestToReservedBank(q)))
+        if(!(isRequestToReservedBank(q)))
             goto frfcfs;
 
         rowHitBankMask = 0x00;
