@@ -27,8 +27,8 @@ public:
 
     enum class Type {
         FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MEDUSA_NO_SWITCH_FRFCFS_PriorHit, MAX
-    } type = Type::FRFCFS_PriorHit;
-    //} type = Type::MEDUSA_FRFCFS_PriorHit;
+    //} type = Type::FRFCFS_PriorHit;
+    } type = Type::MEDUSA_FRFCFS_PriorHit;
     //} type = Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit;
 
     long cap = 16;
