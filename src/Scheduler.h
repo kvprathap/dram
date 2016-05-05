@@ -27,8 +27,8 @@ public:
 
     enum class Type {
         FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, DCMC, ECCO, MAX
-    } type = Type::FRFCFS_PriorHit;
-    //} type = Type::DCMC;
+    //} type = Type::FRFCFS_PriorHit;
+    } type = Type::DCMC;
     //} type = Type::ECCO;
 
     long cap = 16;
@@ -85,11 +85,9 @@ public:
         // scheduling decisions like, if a ready closed request
         // should be scheduled while non-ready open request are
         // available.
-        if (type == Type::ECCO) {
-            for (auto itr = q.begin(); itr != q.end(); itr++) {
-                if (this->ctrl->is_row_hit(itr))
-                    rowHitBankMask |=  0x01 << itr->addr_vec[int (T::Level::Bank)];
-            }
+        for (auto itr = q.begin(); itr != q.end(); itr++) {
+            if (this->ctrl->is_row_hit(itr))
+                rowHitBankMask |=  0x01 << itr->addr_vec[int (T::Level::Bank)];
         }
 
         // Find the request to reserved bank which is not
@@ -248,8 +246,8 @@ private:
             // Being conserveative here.
             // No Bank is ready. Can we issue precharge and activate
             // to the requests from next round if they are ready.
-            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
-            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & ~rowHitBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & ~rowHitBankMask  & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
 
             if (ready1 ^ ready2) {
                 if (ready1) return req1;
