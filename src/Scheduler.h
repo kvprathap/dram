@@ -26,10 +26,10 @@ public:
     Controller<T>* ctrl;
 
     enum class Type {
-        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, MEDUSA_FRFCFS_PriorHit, MEDUSA_NO_SWITCH_FRFCFS_PriorHit, MAX
-    //} type = Type::FRFCFS_PriorHit;
-    } type = Type::MEDUSA_FRFCFS_PriorHit;
-    //} type = Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit;
+        FCFS, FRFCFS, FRFCFS_Cap, FRFCFS_PriorHit, DCMC, ECCO, MAX
+    } type = Type::FRFCFS_PriorHit;
+    //} type = Type::DCMC;
+    //} type = Type::ECCO;
 
     long cap = 16;
     //Bits corresponding to reserved banks are set.
@@ -58,7 +58,7 @@ public:
     list<Request>::iterator get_head(list<Request>& q)
     {
       // TODO make the decision at compile time
-      if (type != Type::FRFCFS_PriorHit && type != Type::MEDUSA_FRFCFS_PriorHit && type != Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
+      if (type != Type::FRFCFS_PriorHit && type != Type::DCMC && type != Type::ECCO) {
         if (!q.size())
             return q.end();
 
@@ -68,7 +68,7 @@ public:
 
         return head;
       // MEDUSA: Round-robin scheduling
-      } else if (type == Type::MEDUSA_FRFCFS_PriorHit || type == Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
+      } else if (type == Type::DCMC || type == Type::ECCO) {
         if(!(isRequestToReservedBank(q)))
             goto frfcfs;
 
@@ -85,15 +85,17 @@ public:
         // scheduling decisions like, if a ready closed request
         // should be scheduled while non-ready open request are
         // available.
-        for (auto itr = q.begin(); itr != q.end(); itr++) {
-            if (this->ctrl->is_row_hit(itr))
-                rowHitBankMask |=  0x01 << itr->addr_vec[int (T::Level::Bank)];
+        if (type == Type::ECCO) {
+            for (auto itr = q.begin(); itr != q.end(); itr++) {
+                if (this->ctrl->is_row_hit(itr))
+                    rowHitBankMask |=  0x01 << itr->addr_vec[int (T::Level::Bank)];
+            }
         }
 
         // Find the request to reserved bank which is not
         // serviced yet in the current round.
         for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-            head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
+            head = compare[int(type)](head, itr);
         }
 
         // No more different banks to serve in this round.
@@ -101,7 +103,7 @@ public:
         if (!(rrBankMask & (0x01 << head->addr_vec[int (T::Level::Bank)]))) {
             rrBankMask = reservedBankMask;
             for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-                head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
+                head = compare[int(type)](head, itr);
             }
         }
 
@@ -219,7 +221,56 @@ private:
 
             if (req1->arrive <= req2->arrive) return req1;
             return req2;},
-        // MEDUSA_FRFCFS_PriorHit,MEDUSA_NO_SWITCH_FRFCFS_PriorHit
+        // DCMC
+        [this] (ReqIter req1, ReqIter req2) {
+            // Find the first come ready request to reserved bank.
+            bool ready1 = (this->ctrl->is_ready(req1)) && (rrBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            bool ready2 = (this->ctrl->is_ready(req2)) && (rrBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;}
+
+            // Being conserveative here.
+            // No Bank is ready. Can we issue precharge and activate
+            // to the requests from next round if they are ready.
+            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;
+            }
+
+            // First come non-ready request to reserved bank.
+            ready1 = ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = ((rrBankMask) & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+
+            if (ready1 ^ ready2) {
+                if (ready1) return req1;
+                return req2;
+            }
+
+            if (ready1 && ready2) {
+                if (req1->arrive <= req2->arrive)
+                    return req1;
+                return req2;
+            }
+
+            if (req1->arrive <= req2->arrive) return req1;
+            return req2;},
+        // ECCO
         [this] (ReqIter req1, ReqIter req2) {
             // First ready row-hit request.
             bool ready1 = (this->ctrl->is_ready(req1)) && (this->ctrl->is_row_hit(req1)) && ((rrBankMask) & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
@@ -298,8 +349,7 @@ private:
             }
 
             if (req1->arrive <= req2->arrive) return req1;
-            return req2;
-        }
+            return req2;}
     };
 };
 
