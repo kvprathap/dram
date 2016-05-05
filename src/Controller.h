@@ -344,14 +344,14 @@ public:
                 // yes -- write queue is almost full or read queue is empty
                 if (writeq.size() >= int(0.8 * writeq.max) || readq.size() == 0) {
                     // But wait-- check if there are read requests to reserved banks
-                    if (!scheduler->isRequestToReservedBank(queue->q))
+                    if (!scheduler->isRequestToReservedBank(queue->q, scheduler->reservedBankMask))
                         write_mode = true;
                 }
             }
             else {
                 // no -- write queue is almost empty and read queue is not empty
                 // Also, if there is a read request to reserved bank, we need to swicth back to reads immediately
-                if ((scheduler->isRequestToReservedBank(queue->q)) || (writeq.size() <= int(0.2 * writeq.max) && readq.size() != 0))
+                if ((scheduler->isRequestToReservedBank(queue->q, scheduler->reservedBankMask)) || (writeq.size() <= int(0.2 * writeq.max) && readq.size() != 0))
                     write_mode = false;
             }
         }

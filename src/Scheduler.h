@@ -46,9 +46,9 @@ public:
 
     // Checks if there are pending requests to
     // reserved banks in the queue.
-    bool isRequestToReservedBank(list<Request>& q) {
+    bool isRequestToReservedBank(list<Request>& q, uint8_t mask) {
         for (auto itr = q.begin() ; itr != q.end() ; ++itr) {
-            if ((reservedBankMask) & (0x01 << itr->addr_vec[int (T::Level::Bank)]))
+            if ((mask) & (0x01 << itr->addr_vec[int (T::Level::Bank)]))
                 return true;
         }
         return false;
@@ -69,7 +69,7 @@ public:
         return head;
       // MEDUSA: Round-robin scheduling
       } else if (type == Type::MEDUSA_FRFCFS_PriorHit || type == Type::MEDUSA_NO_SWITCH_FRFCFS_PriorHit) {
-        if(this->ctrl->write_mode == true || !(isRequestToReservedBank(q)))
+        if(this->ctrl->write_mode == true || !(isRequestToReservedBank(q, reservedBankMask)))
             goto frfcfs;
 
         rowHitBankMask = 0x00;
@@ -96,13 +96,22 @@ public:
             head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
         }
 
-        // No more different banks to serve in this round.
-        // Find a request from next round.
-        if (!(rrBankMask & (0x01 << head->addr_vec[int (T::Level::Bank)]))) {
-            rrBankMask = reservedBankMask;
-            for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
-                head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
-            }
+        //selcted request is either from this round
+        //or a conervatively selected request belongs
+        //to next roud.
+        if (reservedBankMask & (0x01 << head->addr_vec[int (T::Level::Bank)])) {
+            //If no more requests to reserved banks
+            //in this round, reset the round.
+            if (!isRequestToReservedBank(q,rrBankMask))
+                    rrBankMask = reservedBankMask;
+            return head;
+        }
+
+        // When it come here the chosen request could be
+        // first arrived request to shared bank. Reset the round.
+        rrBankMask = reservedBankMask;
+        for (auto itr = next(q.begin(), 1); itr != q.end(); itr++) {
+            head = compare[int(Type::MEDUSA_FRFCFS_PriorHit)](head, itr);
         }
 
         // Selcted request must belong to a Reserved Bank.
@@ -255,8 +264,8 @@ private:
             // Being conserveative here.
             // No Bank is ready. Can we issue precharge and activate
             // to the requests from next round if they are ready.
-            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & ~rrBankMask & ~rowHitBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
-            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & ~rrBankMask & ~rowHitBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
+            ready1 = (this->ctrl->is_ready(req1)) && (reservedBankMask & ~rowHitBankMask & (0x01 << req1->addr_vec[int (T::Level::Bank)]));
+            ready2 = (this->ctrl->is_ready(req2)) && (reservedBankMask & ~rowHitBankMask & (0x01 << req2->addr_vec[int (T::Level::Bank)]));
 
             if (ready1 ^ ready2) {
                 if (ready1) return req1;
